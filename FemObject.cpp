@@ -278,7 +278,7 @@ Eigen::VectorXd FemObject::loadVect(const std::list<hed::Edge*>& leading_edges, 
         double x_c = (x_coords(0)+x_coords(1)+x_coords(2)) / 3;
         double y_c = (y_coords(0)+y_coords(1)+y_coords(2)) / 3;
 
-        double F = f(x_c,y_c, ProblemType::EIGEN);
+        double F = f(x_c,y_c);
 
         Eigen::Vector3d vec = {1,1,1};
         Eigen::Vector3d bK = F / 3 * vec * area;
@@ -297,7 +297,91 @@ Eigen::VectorXd FemObject::loadVect(const std::list<hed::Edge*>& leading_edges, 
 }
 
 
-double FemObject::f(double x, double y, ProblemType problemType, double k){
+Eigen::SparseMatrix<double> FemObject::robinMat(const std::list<hed::Dart>& boundaries, int np){
+
+    Eigen::SparseMatrix<double> R;
+    R.resize(np,np);
+
+    for(const auto& boundary: boundaries){
+        hed::Node* n1 = boundary.getNode();
+        hed::Node* n2 = boundary.getOppositeNode();
+
+        Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+
+        Eigen::Vector2d x = {n1->x(),n2->x()};
+        Eigen::Vector2d y = {n1->y(),n2->y()};
+
+
+        double length =  (    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) );
+
+        double xc = (x(0) + x(1)) / 2;
+        double yc = (y(0) + y(1)) / 2;
+
+
+        double k = kappa(xc,yc);
+
+
+        Eigen::Matrix2d mat;
+        mat << 2,1,
+            1,2;
+
+        Eigen::Matrix2d RE = k / 6 * mat * length;
+
+        for(int i = 0; i < 3; ++i){
+
+
+            for(int j = 0; j < 3; ++j){
+                // R(loc2glb(i) , loc2glb(j) ) = R(loc2glb(i)  , loc2glb(j)) + RE(i,j);
+                R.coeffRef(i,j) += RE(i,j);
+             }
+        }
+
+
+
+
+
+    }
+
+    return R;
+
+}
+
+
+Eigen::VectorXd FemObject::robinVect(const std::list<hed::Dart>& boundaries, int np){
+
+    Eigen::VectorXd r = Eigen::VectorXd::Zero(np);
+
+    for(const auto& boundary: boundaries){
+
+        hed::Node* n1 = boundary.getNode();
+        hed::Node* n2 = boundary.getOppositeNode();
+
+        Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+
+        Eigen::Vector2d x = {n1->x(),n2->x()};
+        Eigen::Vector2d y = {n1->y(),n2->y()};
+
+
+        double length =  (    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) );
+
+        double xc = (x(0) + x(1)) / 2;
+        double yc = (y(0) + y(1)) / 2;
+
+
+
+    }
+
+
+}
+
+
+
+
+
+
+double FemObject::f(double x, double y){
+
+    ProblemType problemType = this->problemType;
 
     switch (problemType ) {
     case LAPLACE:
@@ -305,10 +389,9 @@ double FemObject::f(double x, double y, ProblemType problemType, double k){
 
     case POISSON:
 
-        return (2.0 * M_PI * M_PI + k*k)
-               * std::sin(M_PI * x) * std::sin(M_PI * y);
+        return 1.0f;
 
-    case EIGEN:
+    case EIGENVALUE:
         return 0.0;
 
     default:
@@ -316,4 +399,52 @@ double FemObject::f(double x, double y, ProblemType problemType, double k){
     }
 
 }
+
+
+double FemObject::gN(double x, double y){
+    return 0.0f;
+}
+
+double FemObject::gD(double x, double y){
+
+    ProblemType problemType = this->problemType;
+    double phi;
+
+    switch (problemType) {
+    case LAPLACE:
+        phi = atan2(y,x);
+        return cos(4*phi);
+
+    case POISSON:
+        return y * y * 0.5;
+
+    case HELMHOLTZ:
+        return 0.25;
+
+    default:
+        return 0;
+    }
+
+}
+
+
+
+void FemObject::setProblemType(ProblemType problemType){
+    this->problemType = problemType;
+}
+
+
+
+
+double FemObject::kappa(double x, double y){
+
+    if(this->problemType == HELMHOLTZ || this->problemType == EIGENVALUE){
+        if(x > 0.0)
+            return 0.0;
+        else
+            return 1e6;
+    }
+    return 1e6;
+}
+
 

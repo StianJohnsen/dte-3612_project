@@ -13,14 +13,14 @@
 
 #include <cmath>
 
-enum ProblemType { LAPLACE, POISSON, HELMHOLTZ, EIGEN };
+enum ProblemType { LAPLACE, POISSON, HELMHOLTZ, EIGENVALUE };
 
 
 class FemObject{
 
 public:
 
-    std::string problemType;
+    ProblemType problemType;
     hed::Triangulation triang;
 
     Eigen::SparseMatrix<double> A; // Stiffness matrix
@@ -30,7 +30,7 @@ public:
     Eigen::VectorXd r; // Robin vector
 
 
-    void setProblemType(std::string problem);
+    void setProblemType(ProblemType problemType);
     void solve();
 
     void circleMesh(int n, int m, double r);
@@ -39,13 +39,15 @@ public:
     Eigen::SparseMatrix<double> massMat(const std::list<hed::Edge*>& leading_edges, int np);
     Eigen::SparseMatrix<double> stiffMat(const std::list<hed::Edge*>& leading_edges, int np);
     Eigen::VectorXd loadVect(const std::list<hed::Edge*>& leading_edges, int np);
-    Eigen::SparseMatrix<double> robinMat();
-    Eigen::VectorXd robinVect();
+    Eigen::SparseMatrix<double> robinMat(const std::list<hed::Dart>& boundary, int np);
+    Eigen::VectorXd robinVect(const std::list<hed::Dart>& boundary, int np);
 
-    double kappa(double x, double y); // BC type
+    double kappa(double x, double y);
+
+    // double kappa(double x, double y); // BC type
     double gN(double x, double y); // Neumann BC
     double gD(double x, double y); // Dirichlet BC
-    double f(double x, double y, ProblemType problemType, double k=0.0); // SOURCE FUNCTION
+    double f(double x, double y); // SOURCE FUNCTION
     double u_exact(double x, double y); // Exact solution
 
     double triArea(hed::Node* N1,hed::Node* N2,hed::Node* N3);
