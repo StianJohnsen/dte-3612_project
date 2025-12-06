@@ -23,11 +23,11 @@ public:
     ProblemType problemType;
     hed::Triangulation triang;
 
-    Eigen::SparseMatrix<double> A; // Stiffness matrix
-    Eigen::SparseMatrix<double> M; // Mass matrix
-    Eigen::SparseMatrix<double> R; // Robin matrix
-    Eigen::VectorXd b; // Load vector
-    Eigen::VectorXd r; // Robin vector
+    // Eigen::SparseMatrix<double> A; // Stiffness matrix
+    // Eigen::SparseMatrix<double> M; // Mass matrix
+    // Eigen::SparseMatrix<double> R; // Robin matrix
+    // Eigen::VectorXd b; // Load vector
+    // Eigen::VectorXd r; // Robin vector
 
 
     void setProblemType(ProblemType problemType);

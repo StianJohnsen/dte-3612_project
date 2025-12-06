@@ -147,7 +147,6 @@ Eigen::SparseMatrix<double> FemObject::stiffMat(const std::list<hed::Edge*>& lea
     A.resize(np,np);
     A.reserve(Eigen::VectorXi::Constant(np,10));
 
-
     // const std::list<hed::Edge*>& leading_edges = this->triang.getLeadingEdges();
 
     for(const auto& edge : leading_edges){
@@ -196,8 +195,6 @@ Eigen::SparseMatrix<double> FemObject::stiffMat(const std::list<hed::Edge*>& lea
     return A;
 
 }
-
-
 
 Eigen::SparseMatrix<double> FemObject::massMat(const std::list<hed::Edge*>& leading_edges, int np){
 
@@ -248,7 +245,6 @@ Eigen::SparseMatrix<double> FemObject::massMat(const std::list<hed::Edge*>& lead
     return M;
 
 }
-
 
 Eigen::VectorXd FemObject::loadVect(const std::list<hed::Edge*>& leading_edges, int np){
 
@@ -335,17 +331,11 @@ Eigen::SparseMatrix<double> FemObject::robinMat(const std::list<hed::Dart>& boun
                 R.coeffRef(i,j) += RE(i,j);
              }
         }
-
-
-
-
-
     }
 
     return R;
 
 }
-
 
 Eigen::VectorXd FemObject::robinVect(const std::list<hed::Dart>& boundaries, int np){
 
@@ -367,17 +357,22 @@ Eigen::VectorXd FemObject::robinVect(const std::list<hed::Dart>& boundaries, int
         double xc = (x(0) + x(1)) / 2;
         double yc = (y(0) + y(1)) / 2;
 
+        double tmp = kappa(xc,yc) * gD(xc,yc) + gN(xc,yc);
 
+        Eigen::Vector2d vec = {1.0,1.0};
+        Eigen::Vector2d rE = tmp * vec * length / 2;
+
+        for(int j = 0; j < 2; j++){
+
+            int J = loc2glb(j);
+
+            r.coeffRef(J) += rE(j);
+        }
 
     }
 
-
+    return r;
 }
-
-
-
-
-
 
 double FemObject::f(double x, double y){
 
@@ -427,15 +422,6 @@ double FemObject::gD(double x, double y){
 
 }
 
-
-
-void FemObject::setProblemType(ProblemType problemType){
-    this->problemType = problemType;
-}
-
-
-
-
 double FemObject::kappa(double x, double y){
 
     if(this->problemType == HELMHOLTZ || this->problemType == EIGENVALUE){
@@ -446,5 +432,106 @@ double FemObject::kappa(double x, double y){
     }
     return 1e6;
 }
+
+void FemObject::setProblemType(ProblemType problemType){
+    this->problemType = problemType;
+}
+
+
+void FemObject::solve(){
+
+    const auto nodes = this->triang.getNodes();
+
+    if(!nodes || nodes->empty()){
+
+        std::cerr << "[FEMObject::solve] Triangulation has no nodes.\n";
+
+    }
+
+
+    auto np = static_cast<int>(nodes->size());
+
+    auto& leading_edges = this->triang.getLeadingEdges();
+
+    Eigen::SparseMatrix<double> A; // Stiffness matrix
+    Eigen::SparseMatrix<double> M; // Mass matrix
+    Eigen::SparseMatrix<double> R; // Robin matrix
+    Eigen::VectorXd b; // Load vector
+    Eigen::VectorXd r; // Robin vector
+
+    Eigen::SparseMatrix<double> K;
+    Eigen::VectorXd rhs;
+
+    double lambda = 81;
+
+
+
+    A = stiffMat(leading_edges,np);
+    M = massMat(leading_edges,np);
+    b = loadVect(leading_edges,np);
+
+    std::list<hed::Dart> boundary;
+
+    auto start = this->triang.getBoundaryEdge();
+
+    if(!start){
+        std::cerr << "Error: no boundary found!\n";
+        return;
+    }
+
+
+    hed::Edge* e = start;
+    do {
+        boundary.emplace_back(e, true);  // dart pointing CCW
+        hed::Edge* next = e->getNextEdgeInFace()->getTwinEdge();
+        e = next;
+    } while (e != start);
+
+
+    R = robinMat(boundary,np);
+    r = robinVect(boundary,np);
+
+
+
+    switch (problemType) {
+    case LAPLACE:
+
+        // FEM formulation:
+        // (𝐴 + 𝑅)𝜁 = r
+        K = A + R;
+        rhs = r;
+
+        break;
+
+    case POISSON:
+
+        // FEM formulation:
+        // (𝐴 + 𝑅)𝜁 = b + r
+
+        K = A + R;
+        rhs = b + r;
+
+        break;
+
+    case HELMHOLTZ:
+
+        K = A + R - lambda * M;
+        rhs = r;
+
+        break;
+
+        // FEM formulation:
+        // (A + 𝑅 − 𝜆𝑀)𝜁 = r
+
+    case EIGENVALUE:
+        break;
+    default:
+        break;
+    }
+
+
+}
+
+
 
 
