@@ -10,6 +10,7 @@
 
 #include <Eigen/SparseCore>
 #include <Eigen/Dense>
+#include <Eigen/SparseCholesky>
 
 #include <cmath>
 
@@ -36,11 +37,11 @@ public:
     void circleMesh(int n, int m, double r);
     void squareMesh(int n, double d, Eigen::Vector2d Op);
 
-    Eigen::SparseMatrix<double> massMat(const std::list<hed::Edge*>& leading_edges, int np);
-    Eigen::SparseMatrix<double> stiffMat(const std::list<hed::Edge*>& leading_edges, int np);
-    Eigen::VectorXd loadVect(const std::list<hed::Edge*>& leading_edges, int np);
-    Eigen::SparseMatrix<double> robinMat(const std::list<hed::Dart>& boundary, int np);
-    Eigen::VectorXd robinVect(const std::list<hed::Dart>& boundary, int np);
+    Eigen::SparseMatrix<double> massMat(const std::list<hed::Edge*>& leading_edges, int np,const std::unordered_map<const hed::Node*, int>& nodeToIndex);
+    Eigen::SparseMatrix<double> stiffMat(const std::list<hed::Edge*>& leading_edges, int np, const std::unordered_map<const hed::Node*, int>& nodeToIndex);
+    Eigen::VectorXd loadVect(const std::list<hed::Edge*>& leading_edges, int np, const std::unordered_map<const hed::Node*, int>& nodeToIndex);
+    Eigen::SparseMatrix<double> robinMat(const std::list<hed::Dart>& boundary, int np, const std::unordered_map<const hed::Node*, int>& nodeToIndex);
+    Eigen::VectorXd robinVect(const std::list<hed::Dart>& boundary, int np, const std::unordered_map<const hed::Node*, int>& nodeToIndex);
 
     double kappa(double x, double y);
 

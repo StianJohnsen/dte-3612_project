@@ -141,238 +141,438 @@ Eigen::Vector2<Eigen::Vector3d> FemObject::gradients(Eigen::Vector3d x, Eigen::V
 
 
 
-Eigen::SparseMatrix<double> FemObject::stiffMat(const std::list<hed::Edge*>& leading_edges, int np){
+Eigen::SparseMatrix<double> FemObject::stiffMat(
+    const std::list<hed::Edge*>& leading_edges,
+    int np,
+    const std::unordered_map<const hed::Node*, int>& nodeToIndex)
+{
+    Eigen::SparseMatrix<double> A(np, np);
+    A.reserve(Eigen::VectorXi::Constant(np, 6));
 
-    Eigen::SparseMatrix<double> A;
-    A.resize(np,np);
-    A.reserve(Eigen::VectorXi::Constant(np,10));
-
-    // const std::list<hed::Edge*>& leading_edges = this->triang.getLeadingEdges();
-
-    for(const auto& edge : leading_edges){
+    for (auto edge : leading_edges) {
         hed::Edge* e1 = edge;
         hed::Edge* e2 = e1->getNextEdgeInFace();
         hed::Edge* e3 = e2->getNextEdgeInFace();
-
-        if (!e1 || !e2 || !e3) continue; // safety check
 
         hed::Node* n1 = e1->getSourceNode();
         hed::Node* n2 = e2->getSourceNode();
         hed::Node* n3 = e3->getSourceNode();
 
-        if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+        int I1 = nodeToIndex.at(n1);
+        int I2 = nodeToIndex.at(n2);
+        int I3 = nodeToIndex.at(n3);
 
-        Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
+        Eigen::Vector3d x = {n1->x(), n2->x(), n3->x()};
+        Eigen::Vector3d y = {n1->y(), n2->y(), n3->y()};
 
+        double area = triArea(n1, n2, n3);
+        auto grad = gradients(x, y, area);
 
-        Eigen::Vector3d x_coords = {n1->x(),n2->x(),n3->x()};
-        Eigen::Vector3d y_coords = {n1->y(),n2->y(),n3->y()};
-        double area = triArea(n1,n2,n3);
+        Eigen::Vector3d b = grad(0);
+        Eigen::Vector3d c = grad(1);
 
-        Eigen::Vector2<Eigen::Vector3d> gradPhi = gradients(x_coords,y_coords,area);
+        Eigen::Matrix3d AK = (b * b.transpose() + c * c.transpose()) * area;
 
-        Eigen::Vector3d b = gradPhi(0);
-        Eigen::Vector3d c = gradPhi(1);
+        int idx[3] = {I1, I2, I3};
 
-        Eigen::Matrix3d AK = (b*b.transpose() + c*c.transpose()) * area;
-
-        for(int i = 0; i < 3; ++i){
-
-            int I = loc2glb(i);
-
-            for(int j = 0; j < 3; ++j){
-
-                int J = loc2glb(j);
-
-                A.coeffRef(I,J) += AK(i,j);
-
-            }
-        }
-
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                A.coeffRef(idx[i], idx[j]) += AK(i, j);
     }
 
-    A.makeCompressed();
     return A;
-
 }
 
-Eigen::SparseMatrix<double> FemObject::massMat(const std::list<hed::Edge*>& leading_edges, int np){
 
-    Eigen::SparseMatrix<double> M;
-    M.resize(np,np);
-    M.reserve(Eigen::VectorXi::Constant(np,10));
+// Eigen::SparseMatrix<double> FemObject::stiffMat(const std::list<hed::Edge*>& leading_edges, int np){
 
-    for(const auto& edge : leading_edges){
+//     Eigen::SparseMatrix<double> A;
+//     A.resize(np,np);
+//     A.reserve(Eigen::VectorXi::Constant(np,10));
+
+//     // const std::list<hed::Edge*>& leading_edges = this->triang.getLeadingEdges();
+
+//     for(const auto& edge : leading_edges){
+//         hed::Edge* e1 = edge;
+//         hed::Edge* e2 = e1->getNextEdgeInFace();
+//         hed::Edge* e3 = e2->getNextEdgeInFace();
+
+//         if (!e1 || !e2 || !e3) continue; // safety check
+
+//         hed::Node* n1 = e1->getSourceNode();
+//         hed::Node* n2 = e2->getSourceNode();
+//         hed::Node* n3 = e3->getSourceNode();
+
+//         if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+
+//         Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
+
+
+//         Eigen::Vector3d x_coords = {n1->x(),n2->x(),n3->x()};
+//         Eigen::Vector3d y_coords = {n1->y(),n2->y(),n3->y()};
+//         double area = triArea(n1,n2,n3);
+
+//         Eigen::Vector2<Eigen::Vector3d> gradPhi = gradients(x_coords,y_coords,area);
+
+//         Eigen::Vector3d b = gradPhi(0);
+//         Eigen::Vector3d c = gradPhi(1);
+
+//         Eigen::Matrix3d AK = (b*b.transpose() + c*c.transpose()) * area;
+
+//         for(int i = 0; i < 3; ++i){
+
+//             int I = loc2glb(i);
+
+//             for(int j = 0; j < 3; ++j){
+
+//                 int J = loc2glb(j);
+
+//                 A.coeffRef(I,J) += AK(i,j);
+
+//             }
+//         }
+
+//     }
+
+//     // A.makeCompressed();
+//     return A;
+
+// }
+
+
+Eigen::SparseMatrix<double> FemObject::massMat(
+    const std::list<hed::Edge*>& leading_edges,
+    int np,
+    const std::unordered_map<const hed::Node*, int>& nodeToIndex)
+{
+    Eigen::SparseMatrix<double> M(np, np);
+    M.reserve(Eigen::VectorXi::Constant(np, 6));
+
+    for (auto edge : leading_edges) {
         hed::Edge* e1 = edge;
         hed::Edge* e2 = e1->getNextEdgeInFace();
         hed::Edge* e3 = e2->getNextEdgeInFace();
-
-        if (!e1 || !e2 || !e3) continue; // safety check
 
         hed::Node* n1 = e1->getSourceNode();
         hed::Node* n2 = e2->getSourceNode();
         hed::Node* n3 = e3->getSourceNode();
 
-        if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+        int I1 = nodeToIndex.at(n1);
+        int I2 = nodeToIndex.at(n2);
+        int I3 = nodeToIndex.at(n3);
 
-        Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
-
-
-        double area = triArea(n1,n2,n3);
-
+        double area = triArea(n1, n2, n3);
 
         Eigen::Matrix3d MK;
-        MK <<  2,1,1,
-                1,2,1,
-                1,1,2;
+        MK << 2, 1, 1,
+            1, 2, 1,
+            1, 1, 2;
+        MK *= area / 12.0;
 
-        MK *= (area / 12.0);
+        int idx[3] = {I1, I2, I3};
 
-        for(int i = 0; i < 3; ++i){
-
-            int I = loc2glb(i);
-
-            for(int j = 0; j < 3; ++j){
-
-                int J = loc2glb(j);
-
-                M.coeffRef(I,J) += MK(i,j);
-            }
-        }
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                M.coeffRef(idx[i], idx[j]) += MK(i, j);
     }
 
-    M.makeCompressed();
     return M;
-
 }
 
-Eigen::VectorXd FemObject::loadVect(const std::list<hed::Edge*>& leading_edges, int np){
 
+
+// Eigen::SparseMatrix<double> FemObject::massMat(const std::list<hed::Edge*>& leading_edges, int np){
+
+//     Eigen::SparseMatrix<double> M;
+//     M.resize(np,np);
+//     M.reserve(Eigen::VectorXi::Constant(np,10));
+
+//     for(const auto& edge : leading_edges){
+//         hed::Edge* e1 = edge;
+//         hed::Edge* e2 = e1->getNextEdgeInFace();
+//         hed::Edge* e3 = e2->getNextEdgeInFace();
+
+//         if (!e1 || !e2 || !e3) continue; // safety check
+
+//         hed::Node* n1 = e1->getSourceNode();
+//         hed::Node* n2 = e2->getSourceNode();
+//         hed::Node* n3 = e3->getSourceNode();
+
+//         if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+
+//         Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
+
+
+//         double area = triArea(n1,n2,n3);
+
+
+//         Eigen::Matrix3d MK;
+//         MK <<  2,1,1,
+//                 1,2,1,
+//                 1,1,2;
+
+//         MK *= (area / 12.0);
+
+//         for(int i = 0; i < 3; ++i){
+
+//             int I = loc2glb(i);
+
+//             for(int j = 0; j < 3; ++j){
+
+//                 int J = loc2glb(j);
+
+//                 M.coeffRef(I,J) += MK(i,j);
+//             }
+//         }
+//     }
+
+//     // M.makeCompressed();
+//     return M;
+
+// }
+
+Eigen::VectorXd FemObject::loadVect(
+    const std::list<hed::Edge*>& leading_edges,
+    int np,
+    const std::unordered_map<const hed::Node*, int>& nodeToIndex)
+{
     Eigen::VectorXd b = Eigen::VectorXd::Zero(np);
 
-
-    for(const auto& edge : leading_edges){
+    for (auto edge : leading_edges) {
         hed::Edge* e1 = edge;
         hed::Edge* e2 = e1->getNextEdgeInFace();
         hed::Edge* e3 = e2->getNextEdgeInFace();
-
-        if (!e1 || !e2 || !e3) continue; // safety check
 
         hed::Node* n1 = e1->getSourceNode();
         hed::Node* n2 = e2->getSourceNode();
         hed::Node* n3 = e3->getSourceNode();
 
-        if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+        int I1 = nodeToIndex.at(n1);
+        int I2 = nodeToIndex.at(n2);
+        int I3 = nodeToIndex.at(n3);
 
-        Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
+        Eigen::Vector3d x = {n1->x(), n2->x(), n3->x()};
+        Eigen::Vector3d y = {n1->y(), n2->y(), n3->y()};
 
+        double area = triArea(n1, n2, n3);
 
-        Eigen::Vector3d x_coords = {n1->x(),n2->x(),n3->x()};
-        Eigen::Vector3d y_coords = {n1->y(),n2->y(),n3->y()};
-        double area = triArea(n1,n2,n3);
+        double xc = (x.sum()) / 3.0;
+        double yc = (y.sum()) / 3.0;
 
-        double x_c = (x_coords(0)+x_coords(1)+x_coords(2)) / 3;
-        double y_c = (y_coords(0)+y_coords(1)+y_coords(2)) / 3;
+        double F = f(xc, yc);
 
-        double F = f(x_c,y_c);
+        double val = F * area / 3.0;
 
-        Eigen::Vector3d vec = {1,1,1};
-        Eigen::Vector3d bK = F / 3 * vec * area;
-
-        for(int j = 0; j < 3; ++j){
-
-            int J = loc2glb(j);
-
-            b.coeffRef(J) += bK(j);
-        }
-
-
+        b(I1) += val;
+        b(I2) += val;
+        b(I3) += val;
     }
 
     return b;
 }
 
 
-Eigen::SparseMatrix<double> FemObject::robinMat(const std::list<hed::Dart>& boundaries, int np){
+// Eigen::VectorXd FemObject::loadVect(const std::list<hed::Edge*>& leading_edges, int np){
 
-    Eigen::SparseMatrix<double> R;
-    R.resize(np,np);
+//     Eigen::VectorXd b = Eigen::VectorXd::Zero(np);
 
-    for(const auto& boundary: boundaries){
+
+//     for(const auto& edge : leading_edges){
+//         hed::Edge* e1 = edge;
+//         hed::Edge* e2 = e1->getNextEdgeInFace();
+//         hed::Edge* e3 = e2->getNextEdgeInFace();
+
+//         if (!e1 || !e2 || !e3) continue; // safety check
+
+//         hed::Node* n1 = e1->getSourceNode();
+//         hed::Node* n2 = e2->getSourceNode();
+//         hed::Node* n3 = e3->getSourceNode();
+
+//         if (!n1 || !n2 || !n3) continue; // skip malformed triangles
+
+//         Eigen::Vector3i loc2glb = {n1->id(),n2->id(),n3->id()};
+
+
+//         Eigen::Vector3d x_coords = {n1->x(),n2->x(),n3->x()};
+//         Eigen::Vector3d y_coords = {n1->y(),n2->y(),n3->y()};
+//         double area = triArea(n1,n2,n3);
+
+//         double x_c = (x_coords(0)+x_coords(1)+x_coords(2)) / 3;
+//         double y_c = (y_coords(0)+y_coords(1)+y_coords(2)) / 3;
+
+//         double F = f(x_c,y_c);
+
+//         Eigen::Vector3d vec = {1,1,1};
+//         Eigen::Vector3d bK = F / 3 * vec * area;
+
+//         for(int j = 0; j < 3; ++j){
+
+//             int J = loc2glb(j);
+
+//             b.coeffRef(J) += bK(j);
+//         }
+
+
+//     }
+
+//     return b;
+// }
+
+
+Eigen::SparseMatrix<double> FemObject::robinMat(
+    const std::list<hed::Dart>& boundaries,
+    int np,
+    const std::unordered_map<const hed::Node*, int>& nodeToIndex)
+{
+    Eigen::SparseMatrix<double> R(np, np);
+
+    for (auto& boundary : boundaries) {
+
         hed::Node* n1 = boundary.getNode();
         hed::Node* n2 = boundary.getOppositeNode();
 
-        Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+        int I1 = nodeToIndex.at(n1);
+        int I2 = nodeToIndex.at(n2);
 
-        Eigen::Vector2d x = {n1->x(),n2->x()};
-        Eigen::Vector2d y = {n1->y(),n2->y()};
+        double x1 = n1->x(), y1 = n1->y();
+        double x2 = n2->x(), y2 = n2->y();
 
+        double length = std::sqrt((x1 - x2)*(x1 - x2) +
+                                  (y1 - y2)*(y1 - y2));
 
-        double length =  (    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) );
+        double xc = (x1 + x2) / 2.0;
+        double yc = (y1 + y2) / 2.0;
 
-        double xc = (x(0) + x(1)) / 2;
-        double yc = (y(0) + y(1)) / 2;
+        double k = kappa(xc, yc);
 
+        Eigen::Matrix2d RE;
+        RE << 2, 1,
+            1, 2;
+        RE *= (k * length / 6.0);
 
-        double k = kappa(xc,yc);
-
-
-        Eigen::Matrix2d mat;
-        mat << 2,1,
-            1,2;
-
-        Eigen::Matrix2d RE = k / 6 * mat * length;
-
-        for(int i = 0; i < 3; ++i){
-
-
-            for(int j = 0; j < 3; ++j){
-                // R(loc2glb(i) , loc2glb(j) ) = R(loc2glb(i)  , loc2glb(j)) + RE(i,j);
-                R.coeffRef(i,j) += RE(i,j);
-             }
-        }
+        R.coeffRef(I1, I1) += RE(0, 0);
+        R.coeffRef(I1, I2) += RE(0, 1);
+        R.coeffRef(I2, I1) += RE(1, 0);
+        R.coeffRef(I2, I2) += RE(1, 1);
     }
 
     return R;
-
 }
 
-Eigen::VectorXd FemObject::robinVect(const std::list<hed::Dart>& boundaries, int np){
 
+// Eigen::SparseMatrix<double> FemObject::robinMat(const std::list<hed::Dart>& boundaries, int np){
+
+//     Eigen::SparseMatrix<double> R;
+//     R.resize(np,np);
+
+//     for(const auto& boundary: boundaries){
+//         hed::Node* n1 = boundary.getNode();
+//         hed::Node* n2 = boundary.getOppositeNode();
+
+//         Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+
+//         Eigen::Vector2d x = {n1->x(),n2->x()};
+//         Eigen::Vector2d y = {n1->y(),n2->y()};
+
+
+//         double length =  std::sqrt((    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) ));
+
+//         double xc = (x(0) + x(1)) / 2;
+//         double yc = (y(0) + y(1)) / 2;
+
+
+//         double k = kappa(xc,yc);
+
+
+//         Eigen::Matrix2d mat;
+//         mat << 2,1,
+//             1,2;
+
+//         Eigen::Matrix2d RE = k / 6 * mat * length;
+
+//         for(int i = 0; i < 2; ++i){
+//             for(int j = 0; j < 2; ++j){
+//                 // R(loc2glb(i) , loc2glb(j) ) = R(loc2glb(i)  , loc2glb(j)) + RE(i,j);
+//                 R.coeffRef(loc2glb(i),loc2glb(j)) += RE(i,j);
+//              }
+//         }
+//     }
+
+//     return R;
+
+// }
+
+Eigen::VectorXd FemObject::robinVect(
+    const std::list<hed::Dart>& boundaries,
+    int np,
+    const std::unordered_map<const hed::Node*, int>& nodeToIndex)
+{
     Eigen::VectorXd r = Eigen::VectorXd::Zero(np);
 
-    for(const auto& boundary: boundaries){
+    for (auto& boundary : boundaries) {
 
         hed::Node* n1 = boundary.getNode();
         hed::Node* n2 = boundary.getOppositeNode();
 
-        Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+        int I1 = nodeToIndex.at(n1);
+        int I2 = nodeToIndex.at(n2);
 
-        Eigen::Vector2d x = {n1->x(),n2->x()};
-        Eigen::Vector2d y = {n1->y(),n2->y()};
+        double x1 = n1->x(), y1 = n1->y();
+        double x2 = n2->x(), y2 = n2->y();
 
+        double length = std::sqrt((x1 - x2)*(x1 - x2) +
+                                  (y1 - y2)*(y1 - y2));
 
-        double length =  (    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) );
+        double xc = (x1 + x2) / 2.0;
+        double yc = (y1 + y2) / 2.0;
 
-        double xc = (x(0) + x(1)) / 2;
-        double yc = (y(0) + y(1)) / 2;
+        double val = (kappa(xc, yc) * gD(xc, yc) + gN(xc, yc)) * length / 2.0;
 
-        double tmp = kappa(xc,yc) * gD(xc,yc) + gN(xc,yc);
-
-        Eigen::Vector2d vec = {1.0,1.0};
-        Eigen::Vector2d rE = tmp * vec * length / 2;
-
-        for(int j = 0; j < 2; j++){
-
-            int J = loc2glb(j);
-
-            r.coeffRef(J) += rE(j);
-        }
-
+        r(I1) += val;
+        r(I2) += val;
     }
 
     return r;
 }
+
+
+// Eigen::VectorXd FemObject::robinVect(const std::list<hed::Dart>& boundaries, int np){
+
+//     Eigen::VectorXd r = Eigen::VectorXd::Zero(np);
+
+//     for(const auto& boundary: boundaries){
+
+//         hed::Node* n1 = boundary.getNode();
+//         hed::Node* n2 = boundary.getOppositeNode();
+
+//         Eigen::Vector2i loc2glb = {n1->id(),n2->id()};
+
+//         Eigen::Vector2d x = {n1->x(),n2->x()};
+//         Eigen::Vector2d y = {n1->y(),n2->y()};
+
+
+//         double length =  std::sqrt((    (  (x(0)  - x(1)) * (x(0)  - x(1)) )    +  (  (y(0)  - y(1)) * (y(0)  - y(1)) ) ));
+
+//         double xc = (x(0) + x(1)) / 2;
+//         double yc = (y(0) + y(1)) / 2;
+
+//         // double tmp = kappa(xc,yc) * gD(xc,yc) - gN(xc,yc);
+//         double tmp = kappa(xc,yc) * gD(xc,yc) + gN(xc,yc);
+
+//         Eigen::Vector2d vec = {1.0,1.0};
+//         Eigen::Vector2d rE = tmp * vec * length / 2;
+
+//         for(int j = 0; j < 2; j++){
+
+
+
+//             r.coeffRef(loc2glb(j)) += rE(j);
+//         }
+
+//     }
+
+//     return r;
+// }
 
 double FemObject::f(double x, double y){
 
@@ -403,11 +603,11 @@ double FemObject::gN(double x, double y){
 double FemObject::gD(double x, double y){
 
     ProblemType problemType = this->problemType;
-    double phi;
+    double phi = atan2(y,x);
 
     switch (problemType) {
     case LAPLACE:
-        phi = atan2(y,x);
+        // phi = atan2(y,x);
         return cos(4*phi);
 
     case POISSON:
@@ -440,8 +640,8 @@ void FemObject::setProblemType(ProblemType problemType){
 
 void FemObject::solve(){
 
-    const auto nodes = this->triang.getNodes();
 
+    const std::list<hed::Node*>* nodes = triang.getNodes();
     if(!nodes || nodes->empty()){
 
         std::cerr << "[FEMObject::solve] Triangulation has no nodes.\n";
@@ -453,43 +653,71 @@ void FemObject::solve(){
 
     auto& leading_edges = this->triang.getLeadingEdges();
 
-    Eigen::SparseMatrix<double> A; // Stiffness matrix
-    Eigen::SparseMatrix<double> M; // Mass matrix
-    Eigen::SparseMatrix<double> R; // Robin matrix
-    Eigen::VectorXd b; // Load vector
-    Eigen::VectorXd r; // Robin vector
+    std::unordered_map<const hed::Node*, int> nodeToIndex;
+    nodeToIndex.reserve(np);
+    size_t index = 0;
+
+    for (auto node: *nodes){
+        nodeToIndex[node] = index++;
+    }
+
+
+
+    Eigen::SparseMatrix<double> A = stiffMat(leading_edges,np,nodeToIndex);
+    Eigen::SparseMatrix<double> M = massMat(leading_edges,np,nodeToIndex);
+    Eigen::VectorXd b = loadVect(leading_edges,np, nodeToIndex);
 
     Eigen::SparseMatrix<double> K;
     Eigen::VectorXd rhs;
 
-    double lambda = 81;
+    // double lambda = 81; // 81 / 10^2
 
 
-
-    A = stiffMat(leading_edges,np);
-    M = massMat(leading_edges,np);
-    b = loadVect(leading_edges,np);
-
-    std::list<hed::Dart> boundary;
-
-    auto start = this->triang.getBoundaryEdge();
-
-    if(!start){
-        std::cerr << "Error: no boundary found!\n";
+    double lambda = 0.81;
+    hed::Edge* start = this->triang.getBoundaryEdge();
+    if (!start) {
+        std::cerr << "No boundary found!\n";
         return;
     }
 
+    hed::Dart bdart(start, true);
 
-    hed::Edge* e = start;
-    do {
-        boundary.emplace_back(e, true);  // dart pointing CCW
-        hed::Edge* next = e->getNextEdgeInFace()->getTwinEdge();
-        e = next;
-    } while (e != start);
+    std::list<hed::Dart> boundary;
+
+    ttl::getBoundary(bdart,boundary);
+
+    // std::cout << "Boundary edges = " << boundary.size() << "\n";
 
 
-    R = robinMat(boundary,np);
-    r = robinVect(boundary,np);
+    // for (auto& d : boundary) {
+    //     auto* nA = d.getNode();
+    //     auto* nB = d.getOppositeNode();
+    //     std::cout << "Boundary edge: "
+    //               << nA->id() << " -> " << nB->id() << "\n";
+    // }
+
+
+
+
+    auto R = robinMat(boundary,np, nodeToIndex);
+
+    auto r = robinVect(boundary,np, nodeToIndex);
+
+    // Eigen::SparseMatrix<double> L;
+
+
+
+
+    for (auto& d : boundary) {
+        auto* a = d.getNode();
+        auto* b = d.getOppositeNode();
+
+        std::cout << "Boundary edge: (" << a->x() << ", " << a->y() << ") -> ("
+                  << b->x() << ", " << b->y() << ")   kappa = "
+                  << kappa((a->x()+b->x())*0.5, (a->y()+b->y())*0.5) << "\n";
+    }
+
+
 
 
 
@@ -523,10 +751,48 @@ void FemObject::solve(){
         // FEM formulation:
         // (A + 𝑅 − 𝜆𝑀)𝜁 = r
 
-    case EIGENVALUE:
-        break;
-    default:
-        break;
+    case EIGENVALUE: {
+        Eigen::MatrixXd Ld = Eigen::MatrixXd(A + R);
+        Eigen::MatrixXd Md = Eigen::MatrixXd(M);
+
+        Eigen::GeneralizedEigenSolver<Eigen::MatrixXd> solver;
+        solver.compute(Ld,Md);
+
+        Eigen::MatrixXcd eigvecC = solver.eigenvectors();
+        Eigen::MatrixXd eigvec = eigvecC.real();
+        int modeVal = 1;
+        if (modeVal >= eigvec.cols()) modeVal = 0;
+        Eigen::VectorXd zeta = eigvec.col(modeVal);
+
+        for (auto* n: *nodes){
+            int id = nodeToIndex[n];
+            auto val = zeta(id);
+            n->init(n->x(),n->y(), val);
+        }
+
+        return;
+    }
+
+
+
+        // FEM formulation:
+        // (𝐴 + 𝑅) 𝜁 = Λ𝑀𝜁
+
+    }
+
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+
+    solver.compute(K);
+    if(solver.info() != Eigen::Success){
+        std::cerr << "Factorization failed.\n";
+        return;
+    }
+
+    Eigen::VectorXd zeta = solver.solve(rhs);
+
+    for(hed::Node* n: *nodes){
+        int id = nodeToIndex[n];
+        n->init(n->x(),n->y(),zeta(id));
     }
 
 
