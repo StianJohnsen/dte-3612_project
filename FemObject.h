@@ -12,6 +12,8 @@
 #include <Eigen/Dense>
 #include <Eigen/SparseCholesky>
 
+#include <numeric>
+
 #include <cmath>
 
 enum ProblemType { LAPLACE, POISSON, HELMHOLTZ, EIGENVALUE };
@@ -54,10 +56,18 @@ public:
     double triArea(hed::Node* N1,hed::Node* N2,hed::Node* N3);
     Eigen::Vector2<Eigen::Vector3d> gradients(Eigen::Vector3d x, Eigen::Vector3d y, double area);
 
-    double getError(); // Compare approximated solution to the exact solution
+    // double getError(const std::list<hed::Edge*>& leading_edges,const std::unordered_map<const hed::Node*, int>& nodeToIndex); // Compare approximated solution to the exact solution
+
+    // double getError(const std::list<hed::Edge*>& leading_edges); // Compare approximated solution to the exact solution
+
+    double getError();
+
     int getDoF(); // Number of nodes // Degrees of Freedom
 
     void visualization(std::string filename); // Create .obj file
+
+    std::string problemTypeToString(ProblemType pt);
+
 
 
 

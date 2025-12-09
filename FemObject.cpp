@@ -38,11 +38,11 @@ void FemObject::squareMesh(int n, double d, Eigen::Vector2d Op){
 
     for(size_t j = 0; j < n; ++j){
 
-        double y = Op.y() + (static_cast<double>(j) / (n-1)) * d;
+        float y = Op.y() + (static_cast<double>(j) / (n-1)) * d;
 
         for(size_t i = 0; i < n; ++i){
 
-            double x = Op.x() + static_cast<double>(i) / (n-1) * d;
+            float x = Op.x() + static_cast<double>(i) / (n-1) * d;
 
             nodes.push_back(new hed::Node(x,y));
         }
@@ -74,7 +74,7 @@ void FemObject::visualization(std::string filename) {
     int idx = 1;
 
     for (const auto& node : *nodes) {
-        obj_file << "v " << node->x() << " " << node->y() << " " << node->z() << "\n";
+        obj_file << "v " << node->x() << " " << node->z() << " " << node->y() << "\n";
         nodeIndex[node] = idx++;
     }
 
@@ -100,8 +100,8 @@ void FemObject::visualization(std::string filename) {
         // Write a face (indices are 1-based in OBJ)
         obj_file << "f "
                  << nodeIndex[n1] << " "
-                 << nodeIndex[n2] << " "
-                 << nodeIndex[n3] << "\n";
+                 << nodeIndex[n3] << " "
+                 << nodeIndex[n2] << "\n";
     }
 
     obj_file.close();
@@ -640,14 +640,12 @@ void FemObject::setProblemType(ProblemType problemType){
 
 void FemObject::solve(){
 
-
     const std::list<hed::Node*>* nodes = triang.getNodes();
     if(!nodes || nodes->empty()){
 
         std::cerr << "[FEMObject::solve] Triangulation has no nodes.\n";
 
     }
-
 
     auto np = static_cast<int>(nodes->size());
 
@@ -661,8 +659,6 @@ void FemObject::solve(){
         nodeToIndex[node] = index++;
     }
 
-
-
     Eigen::SparseMatrix<double> A = stiffMat(leading_edges,np,nodeToIndex);
     Eigen::SparseMatrix<double> M = massMat(leading_edges,np,nodeToIndex);
     Eigen::VectorXd b = loadVect(leading_edges,np, nodeToIndex);
@@ -673,7 +669,7 @@ void FemObject::solve(){
     // double lambda = 81; // 81 / 10^2
 
 
-    double lambda = 0.81;
+    double lambda = 81;
     hed::Edge* start = this->triang.getBoundaryEdge();
     if (!start) {
         std::cerr << "No boundary found!\n";
@@ -708,14 +704,14 @@ void FemObject::solve(){
 
 
 
-    for (auto& d : boundary) {
-        auto* a = d.getNode();
-        auto* b = d.getOppositeNode();
+    // for (auto& d : boundary) {
+    //     auto* a = d.getNode();
+    //     auto* b = d.getOppositeNode();
 
-        std::cout << "Boundary edge: (" << a->x() << ", " << a->y() << ") -> ("
-                  << b->x() << ", " << b->y() << ")   kappa = "
-                  << kappa((a->x()+b->x())*0.5, (a->y()+b->y())*0.5) << "\n";
-    }
+    //     std::cout << "Boundary edge: (" << a->x() << ", " << a->y() << ") -> ("
+    //               << b->x() << ", " << b->y() << ")   kappa = "
+    //               << kappa((a->x()+b->x())*0.5, (a->y()+b->y())*0.5) << "\n";
+    // }
 
 
 
@@ -752,26 +748,89 @@ void FemObject::solve(){
         // (A + 𝑅 − 𝜆𝑀)𝜁 = r
 
     case EIGENVALUE: {
+        // Convert to dense
         Eigen::MatrixXd Ld = Eigen::MatrixXd(A + R);
         Eigen::MatrixXd Md = Eigen::MatrixXd(M);
 
         Eigen::GeneralizedEigenSolver<Eigen::MatrixXd> solver;
-        solver.compute(Ld,Md);
+        solver.compute(Ld, Md);
 
-        Eigen::MatrixXcd eigvecC = solver.eigenvectors();
-        Eigen::MatrixXd eigvec = eigvecC.real();
-        int modeVal = 1;
-        if (modeVal >= eigvec.cols()) modeVal = 0;
-        Eigen::VectorXd zeta = eigvec.col(modeVal);
+        // solver.compute(Md,Ld);
 
-        for (auto* n: *nodes){
-            int id = nodeToIndex[n];
-            auto val = zeta(id);
-            n->init(n->x(),n->y(), val);
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Eigenvalue solve failed\n";
+            return;
         }
+
+        Eigen::VectorXd evals = solver.eigenvalues().real();
+        Eigen::MatrixXd evecs = solver.eigenvectors().real();
+
+        const int n = static_cast<int>(evals.size());
+
+        // Build a permutation of indices 0..n-1
+        std::vector<int> idx(n);
+        std::iota(idx.begin(), idx.end(), 0);
+
+        // Sort indices by eigenvalue (ascending)
+        std::sort(idx.begin(), idx.end(),
+                  [&](int i, int j) { return evals(i) < evals(j); });
+
+        // Optional: print a few eigenvalues to see the spectrum
+        // std::cout << "First 10 eigenvalues:\n";
+        // for (int k = 0; k < std::min(n, 10); ++k) {
+        //     std::cout << k << ": λ = " << evals(idx[k]) << "\n";
+        // }
+
+        // Pick the first "physical" mode
+        // (skip any zero or tiny/negative eigenvalues if necessary)
+        int modeRank = 2;  // 0 = first mode, 1 = second, etc.
+        int col = idx[modeRank];
+
+        Eigen::VectorXd zeta = evecs.col(col);
+
+        // Normalize for nicer visualization (optional)
+        // double maxAbs = zeta.cwiseAbs().maxCoeff();
+        // if (maxAbs > 0.0)
+        //     zeta /= maxAbs;
+
+        // Write solution back to nodes using nodeToIndex map
+        for (auto* n : *nodes) {
+            int id = nodeToIndex.at(n); // use the mapping, NOT n->id()
+            double val = zeta(id);
+            n->init(n->x(), n->y(), val);
+        }
+        // double scale = 3.0;  // or 5, 10, etc.
+        // for (auto* n : *nodes) {
+        //     int id = nodeToIndex.at(n);
+        //     double val = scale * zeta(id);
+        //     n->init(n->x(), n->y(), val);
+        // }
 
         return;
     }
+
+
+    // case EIGENVALUE: {
+    //     Eigen::MatrixXd Ld = Eigen::MatrixXd(A + R);
+    //     Eigen::MatrixXd Md = Eigen::MatrixXd(M);
+
+    //     Eigen::GeneralizedEigenSolver<Eigen::MatrixXd> solver;
+    //     solver.compute(Ld,Md);
+
+    //     Eigen::MatrixXcd eigvecC = solver.eigenvectors();
+    //     Eigen::MatrixXd eigvec = eigvecC.real();
+    //     int modeVal = 1;
+    //     if (modeVal >= eigvec.cols()) modeVal = 0;
+    //     Eigen::VectorXd zeta = eigvec.col(modeVal);
+
+    //     for (auto* n: *nodes){
+    //         int id = nodeToIndex[n];
+    //         auto val = zeta(id);
+    //         n->init(n->x(),n->y(), val);
+    //     }
+
+    //     return;
+    // }
 
 
 
@@ -798,6 +857,87 @@ void FemObject::solve(){
 
 }
 
+double FemObject::u_exact(double x, double y){
 
+    ProblemType problemType = this->problemType;
+
+    switch (problemType) {
+    case LAPLACE:{
+        auto rho = std::sqrt((x*x) + (y*y)  );
+        auto phi = atan2(y,x);
+        return std::pow(rho,4.0) * std::cos(4.0*phi);
+    }
+
+    case POISSON:{
+        return (1 - (x*x)) / 2;
+    }
+
+    case HELMHOLTZ:{
+        double lambda = 81.0;
+
+        auto cosLambdaX = std::cos(std::sqrt(lambda) * x );
+        auto tanLambda = std::tan(std::sqrt(lambda) );
+        auto sinLambdaX = std::sin(std::sqrt(lambda) * x );
+
+        return 0.25 * (cosLambdaX + tanLambda * sinLambdaX);
+    }
+
+    case EIGENVALUE:
+        break;
+    }
+}
+
+// double FemObject::getError(const std::list<hed::Edge*>& leading_edges,const std::unordered_map<const hed::Node*, int>& nodeToIndex){
+double FemObject::getError(){
+
+    // auto& leading_edges = this->triang.getLeadingEdges();
+
+
+    double error = 0;
+
+    auto& leading_edges = this->triang.getLeadingEdges();
+
+    for (auto edge : leading_edges) {
+        hed::Edge* e1 = edge;
+        hed::Edge* e2 = e1->getNextEdgeInFace();
+        hed::Edge* e3 = e2->getNextEdgeInFace();
+
+        hed::Node* n1 = e1->getSourceNode();
+        hed::Node* n2 = e2->getSourceNode();
+        hed::Node* n3 = e3->getSourceNode();
+
+        Eigen::Vector3d x = {n1->x(), n2->x(), n3->x()};
+        Eigen::Vector3d y = {n1->y(), n2->y(), n3->y()};
+
+        double area = triArea(n1, n2, n3);
+
+        double xc = (x.sum()) / 3.0;
+        double yc = (y.sum()) / 3.0;
+
+        auto ubar = u_exact(xc,yc);
+        auto uhbar =  (  n1->z() + n2->z() + n3->z() )    / 3.0 ;
+
+        auto eK = ( ubar - uhbar   ) * ( ubar - uhbar   ) * area;
+
+        error += eK;
+    }
+    return std::sqrt(error);
+
+}
+
+int FemObject::getDoF(){
+    return this->triang.getNodes()->size();
+}
+
+
+std::string FemObject::problemTypeToString(ProblemType pt) {
+    switch (pt) {
+    case LAPLACE:    return "laplace";
+    case POISSON:    return "poisson";
+    case HELMHOLTZ:  return "helmholtz";
+    case EIGENVALUE: return "eigenvalue";
+    default:         return "unknown";
+    }
+}
 
 
